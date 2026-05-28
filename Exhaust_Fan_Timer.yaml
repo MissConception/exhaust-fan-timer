@@ -1,0 +1,124 @@
+blueprint:
+  name: Exhaust Fan Timer
+  description: >
+    Turns off an exhaust fan after a configurable timer. Each time the fan is
+    turned on, it adds more time to the timer (up to a configurable maximum). Manually turning off the fan cancels the timer. The fan turns off on Home Assistant restart as well.
+  domain: automation
+  input:
+    fan_switch:
+      name: Fan Switch
+      description: The switch entity controlling the exhaust fan.
+      selector:
+        entity:
+          domain: switch
+    timer_entity:
+      name: Fan Timer
+      description: >
+        A Timer helper for this fan. Create one under Settings → Devices &
+        Services → Helpers → Timer.
+      selector:
+        entity:
+          domain: timer
+    step_minutes:
+      name: Minutes per press
+      description: How many minutes to add each time the fan is switched on.
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 30
+          unit_of_measurement: minutes
+          mode: slider
+    max_minutes:
+      name: Maximum minutes
+      description: The timer will never exceed this value.
+      default: 15
+      selector:
+        number:
+          min: 5
+          max: 60
+          unit_of_measurement: minutes
+          mode: slider
+
+mode: parallel
+max: 10
+
+trigger:
+  - platform: state
+    entity_id: !input fan_switch
+    to: "on"
+    id: fan_on
+  - platform: state
+    entity_id: !input fan_switch
+    to: "off"
+    id: fan_off
+  - platform: event
+    event_type: timer.finished
+    event_data:
+      entity_id: !input timer_entity
+    id: timer_done
+  - platform: homeassistant
+    event: start
+    id: ha_start
+
+variables:
+  timer_entity: !input timer_entity
+  step_minutes: !input step_minutes
+  max_minutes: !input max_minutes
+
+action:
+  - choose:
+
+      # Fan turned ON — start or extend timer
+      - conditions:
+          - condition: trigger
+            id: fan_on
+        sequence:
+          - variables:
+              remaining_secs: >
+                {% set r = state_attr(timer_entity, 'remaining') | default('0:00:00') %}
+                {% if r in [none, 'unknown', 'unavailable'] %}
+                  0
+                {% else %}
+                  {{ r | as_timedelta | default(timedelta(0)) | total_seconds | int }}
+                {% endif %}
+              new_secs: >
+                {% set added = remaining_secs + (step_minutes * 60) %}
+                {{ [added, max_minutes * 60] | min }}
+          - service: timer.start
+            target:
+              entity_id: !input timer_entity
+            data:
+              duration: >
+                {% set s = new_secs | int %}
+                {{ '%02d:%02d:%02d' | format(s // 3600, (s % 3600) // 60, s % 60) }}
+
+      # Fan turned OFF manually — cancel timer
+      - conditions:
+          - condition: trigger
+            id: fan_off
+        sequence:
+          - service: timer.cancel
+            target:
+              entity_id: !input timer_entity
+
+      # Timer expired — turn fan off
+      - conditions:
+          - condition: trigger
+            id: timer_done
+        sequence:
+          - service: switch.turn_off
+            target:
+              entity_id: !input fan_switch
+
+      # HA restarted — turn fan off and cancel timer
+      - conditions:
+          - condition: trigger
+            id: ha_start
+        sequence:
+          - service: switch.turn_off
+            target:
+              entity_id: !input fan_switch
+          - service: timer.cancel
+            target:
+              entity_id: !input timer_entity
