@@ -41,6 +41,14 @@ blueprint:
           max: 60
           unit_of_measurement: minutes
           mode: slider
+    led_intensity_entity:
+      name: LED On Intensity
+      description: >
+        The number entity controlling the LED brightness while the switch is on
+        (e.g. number.inovelli_on_off_switch_led_on_intensity_load_control).
+      selector:
+        entity:
+          domain: number
 
 mode: parallel
 max: 10
@@ -71,7 +79,7 @@ variables:
 action:
   - choose:
 
-      # Fan turned ON — start or extend timer
+      # Fan turned ON — extend or start timer, set LED brightness
       - conditions:
           - condition: trigger
             id: fan_on
@@ -94,8 +102,20 @@ action:
               duration: >
                 {% set s = new_secs | int %}
                 {{ '%02d:%02d:%02d' | format(s // 3600, (s % 3600) // 60, s % 60) }}
+          - service: number.set_value
+            target:
+              entity_id: !input led_intensity_entity
+            data:
+              value: >
+                {% set increments = (max_minutes / 5) | round(0, 'ceil') | int %}
+                {% set brightness_per_increment = 75 / increments %}
+                {% set mins_remaining = new_secs / 60 %}
+                {% set steps = (mins_remaining / 5) | round(0, 'ceil') | int %}
+                {% set steps_capped = [steps, increments] | min %}
+                {{ (steps_capped * brightness_per_increment) | round | int }}
 
       # Fan turned OFF manually — cancel timer
+      # LED will revert automatically via the switch's off-intensity entity
       - conditions:
           - condition: trigger
             id: fan_off
@@ -105,6 +125,7 @@ action:
               entity_id: !input timer_entity
 
       # Timer expired — turn fan off
+      # LED reverts automatically when switch turns off
       - conditions:
           - condition: trigger
             id: timer_done
