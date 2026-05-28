@@ -2,7 +2,9 @@ blueprint:
   name: Exhaust Fan Timer
   description: >
     Turns off an exhaust fan after a configurable timer. Each time the fan is
-    turned on, it adds more time to the timer (up to a configurable maximum). Manually turning off the fan cancels the timer. The fan turns off on Home Assistant restart as well.
+    turned on, it adds more time to the timer (up to a configurable maximum). 
+    Manually turning off the fan cancels the timer. 
+    The fan turns off on Home Assistant restart as well.
   domain: automation
   input:
     fan_switch:
