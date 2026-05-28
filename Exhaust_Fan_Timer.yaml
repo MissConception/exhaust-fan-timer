@@ -6,6 +6,7 @@ blueprint:
     turned on, it adds more time to the timer (up to a configurable maximum). 
     Pressing the down button cancels the timer and turns off the fan. 
     The fan turns off on Home Assistant restart as well.
+    Option to add an additional button to control the fan (e.g. an Ikea Bilresa).
   domain: automation
   input:
     fan_switch:
@@ -17,7 +18,7 @@ blueprint:
     button_up_entity:
       name: Button (Up)
       description: >
-        The event entity for the up button on the switch
+        The event entity for the up button on the Inovelli switch
         (e.g. event.inovelli_on_off_switch_button_up).
       selector:
         entity:
@@ -25,8 +26,26 @@ blueprint:
     button_down_entity:
       name: Button (Down)
       description: >
-        The event entity for the down button on the switch
+        The event entity for the down button on the Inovelli switch
         (e.g. event.inovelli_on_off_switch_button_down).
+      selector:
+        entity:
+          domain: event
+    button_up_entity_2:
+      name: Secondary Button (Up)
+      description: >
+        Optional. The event entity for the up button on a secondary switch
+        (e.g. event.ikea_bilresa_button_up). Leave blank if not used.
+      default: {}
+      selector:
+        entity:
+          domain: event
+    button_down_entity_2:
+      name: Secondary Button (Down)
+      description: >
+        Optional. The event entity for the down button on a secondary switch
+        (e.g. event.ikea_bilresa_button_down). Leave blank if not used.
+      default: {}
       selector:
         entity:
           domain: event
@@ -68,7 +87,7 @@ blueprint:
         entity:
           domain: number
 
-mode: queued
+mode: restart
 max: 10
 
 trigger:
@@ -77,6 +96,12 @@ trigger:
     id: fan_on
   - platform: state
     entity_id: !input button_down_entity
+    id: fan_off
+  - platform: state
+    entity_id: !input button_up_entity_2
+    id: fan_on
+  - platform: state
+    entity_id: !input button_down_entity_2
     id: fan_off
   - platform: event
     event_type: timer.finished
@@ -91,6 +116,8 @@ variables:
   timer_entity: !input timer_entity
   step_minutes: !input step_minutes
   max_minutes: !input max_minutes
+  button_up_entity_2: !input button_up_entity_2
+  button_down_entity_2: !input button_down_entity_2
 
 action:
   - choose:
@@ -115,6 +142,7 @@ action:
                   {% set td = r | as_timedelta %}
                   {{ (td.seconds + td.days * 86400) | int }}
                 {% endif %}
+          - variables:
               new_secs: >
                 {% set added = remaining_secs + (step_minutes * 60) %}
                 {{ [added, max_minutes * 60] | min }}
@@ -137,8 +165,7 @@ action:
                 {% set steps_capped = [steps, increments] | min %}
                 {{ (steps_capped * brightness_per_increment) | round | int }}
 
-      # Down button pressed — turn off fan and cancel timer
-      # LED reverts automatically via the switch's off-intensity entity
+      # Down button pressed — turn off fan and cancel timer if active
       - conditions:
           - condition: trigger
             id: fan_off
@@ -149,12 +176,14 @@ action:
           - service: switch.turn_off
             target:
               entity_id: !input fan_switch
+          - condition: template
+            value_template: >
+              {{ states(timer_entity) == 'active' }}
           - service: timer.cancel
             target:
               entity_id: !input timer_entity
 
       # Timer expired — turn fan off
-      # LED reverts automatically when switch turns off
       - conditions:
           - condition: trigger
             id: timer_done
@@ -163,7 +192,7 @@ action:
             target:
               entity_id: !input fan_switch
 
-      # HA restarted — turn fan off and cancel timer
+      # HA restarted — turn fan off and cancel timer if active
       - conditions:
           - condition: trigger
             id: ha_start
@@ -171,6 +200,9 @@ action:
           - service: switch.turn_off
             target:
               entity_id: !input fan_switch
+          - condition: template
+            value_template: >
+              {{ states(timer_entity) == 'active' }}
           - service: timer.cancel
             target:
               entity_id: !input timer_entity
