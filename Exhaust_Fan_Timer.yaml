@@ -1,9 +1,10 @@
 blueprint:
   name: Exhaust Fan Timer
   description: >
+    Designed for use with the Inovelli White Series Fan Switch.
     Turns off an exhaust fan after a configurable timer. Each time the fan is
     turned on, it adds more time to the timer (up to a configurable maximum). 
-    Manually turning off the fan cancels the timer. 
+    Pressing the down button cancels the timer and turns off the fan. 
     The fan turns off on Home Assistant restart as well.
   domain: automation
   input:
@@ -13,6 +14,22 @@ blueprint:
       selector:
         entity:
           domain: switch
+    button_up_entity:
+      name: Button (Up)
+      description: >
+        The event entity for the up button on the switch
+        (e.g. event.inovelli_on_off_switch_button_up).
+      selector:
+        entity:
+          domain: event
+    button_down_entity:
+      name: Button (Down)
+      description: >
+        The event entity for the down button on the switch
+        (e.g. event.inovelli_on_off_switch_button_down).
+      selector:
+        entity:
+          domain: event
     timer_entity:
       name: Fan Timer
       description: >
@@ -27,8 +44,9 @@ blueprint:
       default: 5
       selector:
         number:
-          min: 1
+          min: 5
           max: 30
+          step: 5
           unit_of_measurement: minutes
           mode: slider
     max_minutes:
@@ -50,17 +68,15 @@ blueprint:
         entity:
           domain: number
 
-mode: parallel
+mode: queued
 max: 10
 
 trigger:
   - platform: state
-    entity_id: !input fan_switch
-    to: "on"
+    entity_id: !input button_up_entity
     id: fan_on
   - platform: state
-    entity_id: !input fan_switch
-    to: "off"
+    entity_id: !input button_down_entity
     id: fan_off
   - platform: event
     event_type: timer.finished
@@ -79,18 +95,25 @@ variables:
 action:
   - choose:
 
-      # Fan turned ON — extend or start timer, set LED brightness
+      # Up button pressed — turn on fan, extend or start timer, set LED
       - conditions:
           - condition: trigger
             id: fan_on
+          - condition: template
+            value_template: >
+              {{ trigger.to_state.attributes.event_type == 'multi_press_1' }}
         sequence:
+          - service: switch.turn_on
+            target:
+              entity_id: !input fan_switch
           - variables:
               remaining_secs: >
                 {% set r = state_attr(timer_entity, 'remaining') | default('0:00:00') %}
                 {% if r in [none, 'unknown', 'unavailable'] %}
                   0
                 {% else %}
-                  {{ r | as_timedelta | default(timedelta(0)) | total_seconds | int }}
+                  {% set td = r | as_timedelta %}
+                  {{ (td.seconds + td.days * 86400) | int }}
                 {% endif %}
               new_secs: >
                 {% set added = remaining_secs + (step_minutes * 60) %}
@@ -114,12 +137,18 @@ action:
                 {% set steps_capped = [steps, increments] | min %}
                 {{ (steps_capped * brightness_per_increment) | round | int }}
 
-      # Fan turned OFF manually — cancel timer
-      # LED will revert automatically via the switch's off-intensity entity
+      # Down button pressed — turn off fan and cancel timer
+      # LED reverts automatically via the switch's off-intensity entity
       - conditions:
           - condition: trigger
             id: fan_off
+          - condition: template
+            value_template: >
+              {{ trigger.to_state.attributes.event_type == 'multi_press_1' }}
         sequence:
+          - service: switch.turn_off
+            target:
+              entity_id: !input fan_switch
           - service: timer.cancel
             target:
               entity_id: !input timer_entity
