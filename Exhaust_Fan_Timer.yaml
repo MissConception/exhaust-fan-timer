@@ -128,12 +128,18 @@ action:
             id: fan_on
           - condition: template
             value_template: >
-              {{ trigger.to_state.attributes.event_type == 'multi_press_1' }}
+              {{ trigger.to_state.attributes.event_type in ['multi_press_1', 'multi_press_2'] }}
         sequence:
           - service: switch.turn_on
             target:
               entity_id: !input fan_switch
           - variables:
+              press_minutes: >
+                {% if trigger.to_state.attributes.event_type == 'multi_press_2' %}
+                  {{ step_minutes * 2 }}
+                {% else %}
+                  {{ step_minutes }}
+                {% endif %}
               remaining_secs: >
                 {% set r = state_attr(timer_entity, 'remaining') | default('0:00:00') %}
                 {% if r in [none, 'unknown', 'unavailable'] %}
@@ -144,7 +150,7 @@ action:
                 {% endif %}
           - variables:
               new_secs: >
-                {% set added = remaining_secs + (step_minutes * 60) %}
+                {% set added = remaining_secs + (press_minutes * 60) %}
                 {{ [added, max_minutes * 60] | min }}
           - service: timer.start
             target:
