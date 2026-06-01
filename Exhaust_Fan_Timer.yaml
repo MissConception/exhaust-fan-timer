@@ -6,7 +6,7 @@ blueprint:
     turned on, it adds more time to the timer (up to a configurable maximum). 
     Pressing the down button cancels the timer and turns off the fan. 
     The fan turns off on Home Assistant restart as well.
-    Option to add an additional button to control the fan (e.g. an Ikea Bilresa).
+    Option to add an additional IKEA Bilresa button to control the fan (e.g. an Ikea Bilresa).
   domain: automation
   input:
     fan_switch:
